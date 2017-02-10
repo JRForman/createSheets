@@ -1,0 +1,393 @@
+﻿
+ 
+'Save Document and Get Information to Prepare Files
+If ThisApplication.ActiveDocument.DocumentType <> kAssemblyDocumentObject Then
+MessageBox.Show("Please run this rule from the assembly file.", "iLogic")
+Exit Sub
+End If
+
+invApp = ThisApplication
+partProgress1 = invApp.CreateProgressBar(False, 3,"Please wait",False,)
+	partProgress1.Message = "Please wait while Inventor prepares to create sheets."
+	partProgress1.UpdateProgress
+iLogicVb.RunExternalRule("PartQTY")
+'ThisDoc.Save
+ThisApplication = InventorVb.Application
+oMyDoc = ThisDoc.ModelDocument
+oPath = ThisDoc.Path
+oFileName = ThisDoc.FileName(False)
+oRevNum = iProperties.Value("Project", "Revision Number")
+'BOM Stuff
+Dim oBOM As BOM
+oBOM = ThisApplication.ActiveDocument.ComponentDefinition.BOM
+oAssy=ThisApplication.ActiveDocument
+Dim oBOMView As BOMView
+oBOM.PartsOnlyViewEnabled = True   
+oBOM.StructuredViewEnabled = True
+oBOMView = oBOM.BOMViews.Item("Parts Only")
+oBomSView=oBOM.BOMViews.Item("Structured")
+	
+
+'Check for operation field
+
+
+Dim oArraylist As ArrayList = New ArrayList()
+	 
+For i = 1 To oBOMView.BOMRows.Count
+  Dim oRow As BOMRow
+  Dim oItemRow As BOMRow
+  oRow = oBOMView.BOMRows(i)
+  Dim oCompDef As ComponentDefinition
+  oPropBOMStructure = oRow.BOMStructure
+  oCompDef = oRow.ComponentDefinitions.Item(1)
+  If oPropBOMStructure = 51973 Then
+  Continue For
+  End If
+  oPart = oCompDef.Document.PropertySets.Item("Design Tracking Properties").Item("Part Number").Value
+  Try
+  oOperation = oCompDef.Document.PropertySets.Item("Inventor User Defined Properties").Item("Operation").Value
+  Catch
+  oOperation = ""
+  End Try
+ 
+
+ 
+ 
+  If oOperation = "" Or oOperation Is Nothing
+  oArraylist.add(oPart)
+  End If
+ 
+
+ 
+Next
+
+oMissingOps = String.Join( vbCrLf , oArrayList.ToArray())
+If oMissingOps.Length > 0
+'MsgBox ("These parts are missing operations: " & oMissingOps)
+oMissingOpsMessage = MessageBox.Show("These parts are missing operations: " & vbNewLine & oMissingOps & vbNewLine & "Do you wish to add operations now?","Missing Operations", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Exclamation)
+If oMissingOpsMessage = vbNo Then
+
+Else If oMissingOpsMessage = vbYes Then
+Dim oCtrlDef As ControlDefinition
+oCtrlDef = ThisApplication.CommandManager.ControlDefinitions.Item("AssemblyBillOfMaterialsCmd")
+oCtrlDef.Execute
+Exit Sub
+
+Else If oMissingOpsMessage = vbCancel Then
+partProgress1.Close
+Exit Sub
+End If
+
+End If
+
+
+partProgress1.Close
+
+'Create Drawing
+oDefaultName = iProperties.Value(oAssy, "Project", "Project")
+oDrawingName = InputBox("What is the file name for drawing?","Document Title", oDefaultName) & ".idw"
+If oDrawingName = ".idw" Then 
+Exit Sub
+End If
+
+oDrawingFullName = oPath & "\" & oDrawingName
+
+Dim oDrawingDoc As DrawingDocument
+oDrawingDoc=ThisApplication.Documents.Add(DocumentTypeEnum.kDrawingDocumentObject, "R:\Engineering Files\Templates 2016\Standard AEF.idw", True)
+ThisApplication.ActiveDocument.SaveAs(oPath & "\" & oDrawingName, False)
+Dim oDoc As DrawingDocument
+oDoc=ThisApplication.ActiveEditDocument
+Dim oSheets As Sheets
+Dim oSheet As Sheet
+ActiveDoc = oDrawingDoc
+oSheets=oDoc.Sheets
+oSheet = oDoc.ActiveSheet
+oSheet.Delete
+oSheet = oDoc.ActiveSheet
+oSheet.Delete
+oSheet = oDoc.ActiveSheet
+Dim sPromptStrings(1) As String
+	fileCount = oBOMView.BOMRows.Count
+	partProgress2 = invApp.CreateProgressBar(False, filecount+1,"Creating cut sheets",False,)
+	partProgress2.Message = "Creating BOMs and assembly pages."
+	partProgress2.UpdateProgress 
+
+'_______________________Change First Sheet, Parts BOM_____________________
+Dim oHeight As Double
+Dim oWidth As Double
+ 	oHeight = oSheet.Height
+ 	oWidth = oSheet.Width
+Dim oPoint As Point2d
+Dim oPoint2 As Point2d
+Dim oPoint3 As Point2d
+    oPoint = ThisApplication.TransientGeometry.CreatePoint2d(oWidth/2+3.5,oHeight/2+2)
+	oPoint2 = ThisApplication.TransientGeometry.CreatePoint2d(15.58,oHeight -.97)
+	oPoint3 = ThisApplication.TransientGeometry.CreatePoint2d(11.13+3.17,oHeight-.97)
+oSheet.DrawingViews.AddBaseView(oAssy, oPoint,1/4,ViewOrientationTypeEnum.kIsoTopRightViewOrientation,  DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle,,,)
+oDrawingView=oSheet.DrawingViews.Item(1)
+oDrawHeight=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Height
+oDrawWidth=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Width
+Dim oScale As String
+If oDrawWidth > (oDrawHeight * 1.625) Then
+	oScale = 16/oDrawWidth*.25
+Else
+		oScale = 10/oDrawHeight*.25
+End If
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).ScaleString()=oScale
+Dim oPartsList As PartsList
+Try
+oPartsList = oSheet.PartsLists.Add (oDrawingView, oPoint2, 46593)
+oPartsList.Style = oDoc.StylesManager.PartsListStyles.Item("Parts List AEF")
+oPartsList.Title = ("SHIP BOM")
+oSheet.Name=("02 SHIP BOM")
+oSheet.TitleBlock.Delete
+sPromptStrings(0)=""
+sPromptStrings(1)=""
+oSheet.AddTitleBlock("SHIP",,sPromptStrings)
+Catch
+MsgBox("Please format your Structured BOM correctly")
+oDoc.Close
+Exit Sub
+End Try
+'___________________Add Second Sheet, Add Ship BOM________________________
+Dim oDrawingDocDummy As DrawingDocument
+oDrawingDocDummy=ThisApplication.Documents.Add(DocumentTypeEnum.kDrawingDocumentObject, "R:\Engineering Files\Templates 2016\Standard AEF.idw", True)
+Dim oSheetsDummy As Sheets
+Dim oSheetDummy As Sheet
+oSheetsDummy=oDrawingDocDummy.Sheets
+oSheetDummy=oDrawingDocDummy.ActiveSheet
+Dim oHeightDummy As Double
+Dim oWidthDummy As Double
+oSheetDummy.DrawingViews.AddBaseView(oAssy, oPoint,oScale,ViewOrientationTypeEnum.kIsoTopRightViewOrientation,  DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle,,,)
+oDrawingViewDummy=oSheetDummy.DrawingViews.Item(1)
+
+Dim oPartsListDummy As PartsList
+oPartsListDummy = oSheetDummy.PartsLists.Add (oDrawingViewDummy, oPoint3, 46594)
+oPartsListDummy.Style = oDrawingDocDummy.StylesManager.PartsListStyles.Item("Parts List (ANSI)")
+oPartsListDummy.Title = ("PARTS BOM")
+oSheetDummy.Name=("01 PART BOM")
+oSheetDummy.TitleBlock.Delete
+oSheetDummy.AddTitleBlock("BOM",,)
+oSheetDummy.CopyTo(oDrawingDoc)
+ThisApplication.ActiveDocument.Close(True)
+
+
+'__________________Add Third Sheet, First Assy Sheet__________
+   oDrawingDoc.Activate()
+   oDoc.Sheets.add(,,"03 ASSEMBLY")
+  oSheet = oDoc.ActiveSheet
+  oSheet.AddTitleBlock("Assembly",, )
+  oSheet.AddDefaultBorder
+  oSheet.Size=(9987)
+  
+ ' Dim partProgress2 As ProgressBar
+	'fileCount = oBOMView.BOMRows.Count
+
+  
+'_____________________Loop Starts_______________________________
+For i = 1 To oBOMView.BOMRows.Count
+  Dim oRow As BOMRow
+  Dim oItemRow As BOMRow
+  oRow = oBOMView.BOMRows(i)
+  Dim oCompDef As ComponentDefinition
+  oCompDef = oRow.ComponentDefinitions.Item(1)
+  oPart = oCompDef.Document.PropertySets.Item("Design Tracking Properties").Item("Part Number").Value
+  oQTY = oRow.ItemQuantity
+  oStock = oCompDef.Document.PropertySets.Item("Design Tracking Properties").Item("Stock Number").Value
+  'oOperation = "NOOOOOOOOOO"
+  Try
+  oOperation = oCompDef.Document.PropertySets.Item("Inventor User Defined Properties").Item("Operation").Value
+  Catch
+  oOperation = " "
+  End Try
+  oSheetName = oPart & "_" & oStock '& "(" & oQTY & ")"
+  partProgress2.Message = "Creating sheet: " & oPart
+  sPromptStrings(0)=oQTY
+  sPromptStrings(1)=oOperation
+  Dim oPartName As String = oCompDef.Document.FullDocumentName
+  Dim oStructureProp As PropertySet
+  oPropBOMStructure = oRow.BOMStructure
+  If oPropBOMStructure = 51970 Or oPropBOMStructure = 51974 Then    '51970 File Subtype is For Normal Type Parts ONLY, May need to Modify for Inseperable Subtype.
+  oDoc.Sheets.add(,,oSheetName)
+  oSheet = oDoc.ActiveSheet
+  oSheet.AddTitleBlock("Parts",,sPromptStrings )
+  oSheet.AddDefaultBorder
+  oSheet.Size=(9987)
+  
+ '_______________________Split Insert Part View For File Subtype_______________
+ Dim oModel As Document
+oModel = ThisApplication.Documents.Open(oPartName, False)
+ oPropType =  oCompDef.Document.PropertySets.Item("Design Tracking Properties").Item("Document SubType Name").Value
+
+ 
+ If oPropType = ("Sheet Metal") Then
+ '_______________________Loop SubType Sheet Metal_______________________
+ 	oHeight = oSheet.Height
+ 	oWidth = oSheet.Width
+    oPoint = ThisApplication.TransientGeometry.CreatePoint2d(oWidth/2,oHeight/2+2)
+Dim oBaseView As DrawingView
+Dim oBaseViewOptions As NameValueMap
+oBaseViewOptions = ThisApplication.TransientObjects.CreateNameValueMap
+oBaseViewOptions.Add("SheetMetalFoldedModel", False)
+oBaseViewOptions.Add("DisplayForeshortenedTangentEdges", True)
+oBaseView = oSheet.DrawingViews.AddBaseView(oModel, oPoint,1/4,ViewOrientationTypeEnum.kDefaultViewOrientation,  DrawingViewStyleEnum.kHiddenLineDrawingViewStyle,,,oBaseViewOptions)
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Name = oQTY
+oDrawHeight=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Height
+oDrawWidth=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Width
+'Dim oScale As String
+If oDrawWidth > (oDrawHeight * 1.625) Then
+	oScale = 14/oDrawWidth*.25
+Else
+		oScale = 10/oDrawHeight*.25
+End If
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).ScaleString()=oScale
+
+'________________________Add 3D View_______________
+oPoint2 = ThisApplication.TransientGeometry.CreatePoint2d(4,4)
+oBaseViewOptions2 = ThisApplication.TransientObjects.CreateNameValueMap
+'oBaseViewOptions.Add("SheetMetalFoldedModel", False)
+oBaseView = oSheet.DrawingViews.AddBaseView(oModel, oPoint2,1/4,ViewOrientationTypeEnum.kIsoTopRightViewOrientation,  DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle,,,)
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Name =  oPart & " ISO"
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).DisplayForeshortenedTangentEdges = True
+'Dim oGeneralDim As GeneralDimension
+'     oGeneralDim = oSheet.DrawingDimensions.GeneralDimensions.Item(2)
+'	Dim oDimStyle As DimensionStyle
+ '   oDimStyle = oGeneralDim.Type
+	 
+'	oDimStyle.Type(kTrueGeneralDimension)
+	
+	ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).GeneralDimensionType = 72194
+	
+
+Dim oLayers As LayersEnumerator = oBaseView.Parent.Parent.StylesManager.layers
+Dim oLayer2 As Layer = oLayers.Item("~Not DXF")
+Dim oCurves As DrawingCurvesEnumerator = oBaseView.DrawingCurves()
+
+Dim oCurve As DrawingCurve
+    For Each oCurve In oBaseView.DrawingCurves
+        Dim oCurveSegment As DrawingCurveSegment
+        For Each oCurveSegment In oCurve.Segments
+            oCurveSegment.Layer = oLayer2
+        Next
+    Next
+
+
+oDrawHeight2=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Height
+oDrawWidth2=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Width
+'Dim oScale As String
+	If oDrawWidth2 > (oDrawHeight2 * 1) Then
+		oScale2 = 4/oDrawWidth2*.25
+	Else
+		oScale2 = 4/oDrawHeight2*.25
+	End If
+	ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).ScaleString()=oScale2
+
+oModel.Close(True)
+'________________________End SubType Sheet Metal Loop_________________
+
+  '  __________________Loop SubType Model_______________________
+ 						Else
+ 	oHeight = oSheet.Height
+ 	oWidth = oSheet.Width
+    oPoint = ThisApplication.TransientGeometry.CreatePoint2d(oWidth/2+9,oHeight/2+2)
+Dim oBaseView As DrawingView
+Dim oBaseViewOptions As NameValueMap
+oBaseViewOptions = ThisApplication.TransientObjects.CreateNameValueMap
+'oBaseViewOptions.Add("SheetMetalFoldedModel", False)
+oBaseView = oSheet.DrawingViews.AddBaseView(oModel, oPoint,1,ViewOrientationTypeEnum.kDefaultViewOrientation,  DrawingViewStyleEnum.kHiddenLineDrawingViewStyle,,,oBaseViewOptions)
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Name = oQTY
+oDrawHeight=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Height
+oDrawWidth=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Width
+'Dim oScale As String
+'	If oDrawWidth > (oDrawHeight * 1) Then
+'		oScale = 6/oDrawWidth*.25
+'	Else
+'		oScale = 6/oDrawHeight*.25
+'	End If
+'ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).ScaleString()=1
+
+
+'_____________Center Part on page For Model SubType___________________
+'oQuestion = MessageBox.Show("Do you want to center the part on the page?", "iLogic Question",MessageBoxButtons.YesNo,MessageBoxIcon.Question)
+
+ '           If oQuestion = vbYes Then
+'			ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Delete
+  		'	oPoint = ThisApplication.TransientGeometry.CreatePoint2d(oWidth/2,oHeight/2+2)
+		'	oBaseViewOptions = ThisApplication.TransientObjects.CreateNameValueMap
+		'	oBaseViewOptions.Add("SheetMetalFoldedModel", False)
+		'	oBaseView = oSheet.DrawingViews.AddBaseView(oModel, oPoint,1/4,ViewOrientationTypeEnum.kDefaultViewOrientation,  DrawingViewStyleEnum.kHiddenLineDrawingViewStyle,,,oBaseViewOptions)
+		'	ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Name = oQTY
+		'	oDrawHeight=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Height
+		'	oDrawWidth=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).Width
+		'	If oDrawWidth > (oDrawHeight * 1.625) Then
+		'	oScale = 10/oDrawWidth*.25
+		'	Else
+		'	oScale = 10/oDrawHeight*.25
+		'	End If
+	'ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).ScaleString()=oScale
+
+  '    Else If oQuestion = vbNo Then
+	'ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(1).ScaleString()=1
+    
+'     End If
+'________________________Add 3D View_______________
+oPoint2 = ThisApplication.TransientGeometry.CreatePoint2d(4,4)
+oBaseViewOptions = ThisApplication.TransientObjects.CreateNameValueMap
+'oBaseViewOptions.Add("SheetMetalFoldedModel", False)
+oBaseView = oSheet.DrawingViews.AddBaseView(oModel, oPoint2,1/4,ViewOrientationTypeEnum.kIsoTopRightViewOrientation,  DrawingViewStyleEnum.kHiddenLineRemovedDrawingViewStyle,,,)
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Name = oPart & " ISO"
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).DisplayForeshortenedTangentEdges = True
+ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).GeneralDimensionType = 72194
+
+Dim oLayers As LayersEnumerator = oBaseView.Parent.Parent.StylesManager.layers
+'Dim oLayer As Layer = oLayers.Item("~Not DXF")
+Dim oCurves As DrawingCurvesEnumerator = oBaseView.DrawingCurves()
+'Dim oCurve As DrawingCurve
+'For Each oCurve In oCurves
+'	oCurve.Segments.Item(1).Layer = oLayer
+'Next
+
+Dim oCurve As DrawingCurve
+    For Each oCurve In oBaseView.DrawingCurves
+        Dim oCurveSegment As DrawingCurveSegment
+        For Each oCurveSegment In oCurve.Segments
+            oCurveSegment.Layer = oLayer
+        Next
+    Next
+
+
+oDrawHeight2=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Height
+oDrawWidth2=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Width
+'Dim oScale As String
+	If oDrawWidth2 > (oDrawHeight2 * 1) Then
+		oScale2 = 4/oDrawWidth2*.25
+	Else
+		oScale2 = 4/oDrawHeight2*.25
+	End If
+	ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).ScaleString()=oScale2
+'oDrawHeight3=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Height/2
+'oDrawWidth3=ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).Width/2
+'	oPoint3=ThisApplication.TransientGeometry.CreatePoint2d(oDrawHeight3,oDrawWidth3)
+
+'ThisApplication.ActiveDocument.ActiveSheet.DrawingViews.Item(2).View
+
+
+
+
+
+oModel.Close(True)
+  End If						
+
+'____________________End SubType Model Loop__________________
+ End If 
+  partProgress2.UpdateProgress
+  invApp.Views.Item(1).Fit(True)
+Next
+'______________Loop Ends_________________________
+
+
+iLogicVb.RunExternalRule("Sort")
+ThisApplication.ActiveDocument.Save
+partProgress2.Close
+
+
